@@ -19,6 +19,7 @@ import fairscale.nn.model_parallel.initialize as fs_init
 from transformers.models.llama.modeling_llama import (
     LlamaAttention,
     LlamaFlashAttention2,
+    LlamaSdpaAttention,
     apply_rotary_pos_emb,
 )
 from transformers.cache_utils import Cache, DynamicCache, StaticCache
@@ -41,8 +42,7 @@ logger = logging.get_logger(__name__)
 
 from torch import nn
 
-
-class LlamaFlashAttention2TPSP(LlamaFlashAttention2):
+class LlamaFlashAttention2TPSP(LlamaSdpaAttention):
     """
     Llama flash attention module. This module inherits from `LlamaAttention` as the weights of the module stays
     untouched. The only required change would be on the forward pass where it needs to correctly call the public API of
@@ -158,6 +158,7 @@ class LlamaFlashAttention2TPSP(LlamaFlashAttention2):
         output_attentions: bool = False,
         use_cache: bool = False,
         cache_position: Optional[torch.LongTensor] = None,
+        **kwargs,
     ) -> Tuple[torch.Tensor, Optional[torch.Tensor], Optional[Tuple[torch.Tensor]]]:
         if isinstance(past_key_value, StaticCache):
             raise ValueError(
@@ -253,13 +254,12 @@ class LlamaFlashAttention2TPSP(LlamaFlashAttention2):
             key_states = key_states.to(target_dtype)
             value_states = value_states.to(target_dtype)
 
-        attn_output = self._flash_attention_forward(
+        attn_output = torch.nn.functional.scaled_dot_product_attention(
             query_states,
             key_states,
             value_states,
             attention_mask,
-            q_len,
-            dropout=dropout_rate,
+            dropout_p=self.attention_dropout if self.training else 0.0,
         )
 
         attn_output = attn_output.reshape(bsz, q_len, -1).contiguous()
