@@ -85,13 +85,16 @@ class LlamaMLPTPSP(nn.Module):
             return self.w2(self.act_fn(self.w1(x)) * self.w3(x))
 
 
-def apply_tpsp_attn_patch_llama(model):
+def apply_tpsp_attn_patch_llama(model, sequence_parallel=True):
     for i in range(model.config.num_hidden_layers):
         new_attn = LlamaFlashAttention2TPSP(
             model.config,
             i,
+            sequence_parallel=sequence_parallel
         ).to(model.dtype)
-        new_mlp = LlamaMLPTPSP(model.config).to(model.dtype)
+        new_mlp = LlamaMLPTPSP(model.config,
+                               sequence_parallel=sequence_parallel
+                               ).to(model.dtype)
         model.model.layers[i].self_attn = new_attn
         model.model.layers[i].mlp = new_mlp
     print("Applied TP-SP patch for LlamaFlashAttn")
